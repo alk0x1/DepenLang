@@ -1,5 +1,5 @@
 use nom::{
-  bytes::complete::take_while1, character::complete::{char, space0}, error::Error, sequence::tuple, IResult
+  bytes::complete::take_while1, character::complete::{char, space0}, sequence::tuple, IResult
 };
 
 use crate::lexer::Term;
@@ -54,11 +54,11 @@ fn test_parse_abs() {
 
 #[test]
 fn test_parse_app() {
-  assert_eq!(parse_app("xy"), Ok(("", Term::App(Box::new(Term::Var("x".to_string())), Box::new(Term::Var("y".to_string()))))));
+  assert_eq!(parse_app("x y"), Ok(("", Term::App(Box::new(Term::Var("x".to_string())), Box::new(Term::Var("y".to_string()))))));
 }
 
 #[test]
 fn test_parse_term() {
   assert_eq!(parse_term("λx.x"), Ok(("", Term::Abs("x".to_string(), Box::new(Term::Var("x".to_string()))))));
-  assert_eq!(parse_term("xy"), Ok(("", Term::App(Box::new(Term::Var("x".to_string())), Box::new(Term::Var("y".to_string()))))));
+  assert_eq!(parse_term("x y"), Ok(("", Term::App(Box::new(Term::Var("x".to_string())), Box::new(Term::Var("y".to_string()))))));
 }
