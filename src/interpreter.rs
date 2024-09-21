@@ -28,9 +28,9 @@ impl fmt::Debug for Value {
   }
 }
 
-type Env = HashMap<String, Value>;
+pub type Env = HashMap<String, Value>;
 
-fn eval(term: Term, env: &Env) -> Value {
+pub fn eval(term: Term, env: &Env) -> Value {
   match term {
     Term::Var(x) => env.get(&x).cloned().unwrap_or(Value::Var(x)),
     Term::Abs(x, body) => {
@@ -80,7 +80,7 @@ mod tests {
     let env = Env::new();
     let identity = Term::Abs("x".to_string(), Box::new(Term::Var("x".to_string())));  // λx. x
     
-let app = Term::App(Box::new(identity), Box::new(Term::Var("y".to_string())));  // Apply λx.x to "y"
+    let app = Term::App(Box::new(identity), Box::new(Term::Var("y".to_string())));  // Apply λx.x to "y"
 
     let result = eval(app, &env);
 
@@ -92,7 +92,7 @@ let app = Term::App(Box::new(identity), Box::new(Term::Var("y".to_string())));  
     let env = Env::new();
 
     // λx. λy. x (constant function)
-    let constant_func = Term::Abs(
+    let constant_func = Term::Abs( 
       "x".to_string(),
       Box::new(Term::Abs(
         "y".to_string(),
