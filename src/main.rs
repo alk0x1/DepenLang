@@ -7,9 +7,10 @@ mod parser;
 use lexer::Term;
 use parser::parse_term;
 mod interpreter;
+mod typechecker;
 
 fn main() {
-    println!("Hello, world!");
+  run_file("../test_files/identity.lisp").expect("error on running file");
 }
 
 fn run_file(filename: &str) -> Result<Value, String> {
@@ -22,7 +23,7 @@ fn run_file(filename: &str) -> Result<Value, String> {
 
   // Ensure no remaining input that wasn't parsed
   if !remaining_input.is_empty() {
-      return Err(format!("Unparsed input remaining: {:?}", remaining_input));
+    return Err(format!("Unparsed input remaining: {:?}", remaining_input));
   }
 
   // Step 3: Create an empty environment
@@ -35,30 +36,11 @@ fn run_file(filename: &str) -> Result<Value, String> {
   Ok(result)
 }
 
-fn parse_file(filename: &str) -> Result<Term, String> {
-  // Read the file contents into a string
-  let mut file = fs::File::open(filename).map_err(|e| format!("Error opening file: {}", e))?;
-  let mut contents = String::new();
-  file.read_to_string(&mut contents).map_err(|e| format!("Error reading file: {}", e))?;
-
-  // Trim the contents to remove leading and trailing whitespace
-  let contents = contents.trim();
-
-  // Parse the contents
-  let (remaining_input, parsed_term) = parse_term(&contents).map_err(|e| format!("Error parsing file: {}", e))?;
-
-  // Ensure no remaining input that wasn't parsed
-  if !remaining_input.trim().is_empty() {
-    return Err(format!("Unparsed input remaining: {:?}", remaining_input));
-  }
-
-  Ok(parsed_term)
-}
-
-
 #[cfg(test)]
 mod file_tests {
-  use super::*;
+  use std::sync::Arc;
+
+use super::*;
 
   #[test]
   fn test_run_file_identity_function() {
@@ -89,7 +71,7 @@ mod file_tests {
     let (remaining_input, parsed_term) = parse_term(file_contents).expect("error parsing term");
     
     // Ensure there's no remaining unparsed input
-    // assert!(remaining_input.trim().is_empty(), "Unparsed input remaining: {:?}", remaining_input);
+    assert!(remaining_input.trim().is_empty(), "Unparsed input remaining: {:?}", remaining_input);
     
     // Create a fresh environment and evaluate the parsed term
     let env = Env::new();
@@ -102,20 +84,72 @@ mod file_tests {
 
   #[test]
   fn test_run_file_environment_capture() {
-    let mut env = Env::new();
-    env.insert("z".to_string(), Value::Var("z_value".to_string()));
+      let mut env = Env::new();
+      env.insert("z".to_string(), Value::Var("z_value".to_string()));
 
-    // Read and parse the contents of the 'capture.lisp' file
-    let file_contents = include_str!("../test_files/capture.lisp");
-    let (remaining_input, parsed_term) = parse_term(file_contents).expect("error parsing term");
+      // Read and parse the contents of the 'capture.lisp' file
+      let file_contents = include_str!("../test_files/capture.lisp");
+      let (remaining_input, parsed_term) = parse_term(file_contents).expect("error parsing term");
 
-    // Ensure there's no remaining unparsed input
-    assert!(remaining_input.trim().is_empty(), "Unparsed input remaining: {:?}", remaining_input);
+      // Ensure there's no remaining unparsed input
+      assert!(remaining_input.trim().is_empty(), "Unparsed input remaining: {:?}", remaining_input);
 
-    // Evaluate the parsed term in the pre-populated environment
-    let result = eval(parsed_term, &env);
+      // Evaluate the parsed term in the pre-populated environment
+      let result = eval(parsed_term, &env);
 
-    // Check that the result correctly captures the value of 'z' from the environment
-    // assert_eq!(result, Value::Var("z_value".to_string()));
+      // The result should be a closure
+      if let Value::Closure(closure) = result {
+          // Apply the closure to any argument (it should be ignored)
+          let applied_result = closure(Value::Var("dummy".to_string()));
+          
+          // Check that the result correctly captures the value of 'z' from the environment
+          assert_eq!(applied_result, Value::Var("z_value".to_string()));
+      } else {
+          panic!("Expected a closure, but got {:?}", result);
+      }
   }
+
+//   #[test]
+// fn test_boolean_logic() {
+//     let file_contents = include_str!("../test_files/boolean_logic.lisp");
+//     let (remaining_input, parsed_term) = parse_term(file_contents).expect("error parsing term");
+    
+//     // Ensure there's no remaining unparsed input
+//     assert!(remaining_input.trim().is_empty(), "Unparsed input remaining: {:?}", remaining_input);
+    
+//     let env = Env::new();
+//     let result = eval(parsed_term, &env);
+
+//     // The result should be a closure (our NOT function)
+//     if let Value::Closure(not_function) = result {
+//         // Create true value: \x. \y. x
+//         let true_value = Value::Closure(Arc::new(|x: Value| {
+//             Value::Closure(Arc::new(move |_: Value| x.clone()))
+//         }));
+
+//         // Apply NOT to true (which should return false)
+//         let not_true = not_function(true_value);
+
+//         // Apply the result to two arbitrary values. If it's false, it should return the second value.
+//         if let Value::Closure(false_result) = not_true {
+//             let arbitrary_value1 = Value::Var("arbitrary1".to_string());
+//             let arbitrary_value2 = Value::Var("arbitrary2".to_string());
+            
+//             // We need to apply false_result twice because our booleans take two arguments
+//             let final_result = false_result(arbitrary_value1.clone());
+//             if let Value::Closure(final_closure) = final_result {
+//                 let actual_final_result = final_closure(arbitrary_value2.clone());
+
+//                 // The final result should be arbitrary_value2, indicating that NOT(true) correctly returned false
+//                 assert_eq!(actual_final_result, arbitrary_value2);
+//             } else {
+//                 panic!("Expected a closure after first application, but got {:?}", final_result);
+//             }
+//         } else {
+//             panic!("Expected a closure representing false, but got {:?}", not_true);
+//         }
+//     } else {
+//         panic!("Expected a closure, but got {:?}", result);
+//     }
+// }
 }
