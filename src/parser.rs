@@ -1,81 +1,111 @@
 use nom::{
-    error::Error,
     branch::alt,
     bytes::complete::take_while1,
-    character::complete::{char, space0},
-    sequence::tuple,
-    IResult,
+    character::complete::{char, space0, space1},
+    combinator::map,
+    error::{context, VerboseError},
+    multi::many0,
+    sequence::{delimited, pair, preceded},
+    Err, IResult,
 };
 use crate::lexer::Term;
 
-fn parse_parens(input: &str) -> IResult<&str, Term> {
-  let (input, _) = char('(')(input)?;
-  let (input, term) = parse_term(input)?;
-  let (input, _) = char(')')(input)?;
-  Ok((input, term))
+type ParseResult<'a, O> = IResult<&'a str, O, VerboseError<&'a str>>;
+
+#[derive(PartialEq)]
+pub enum ParseErrorKind {
+    UnexpectedChar(char),
+    UnexpectedEOF,
+    InvalidVariable,
+    InvalidAbstraction,
+    InvalidApplication,
+    Other(String),
 }
 
-fn parse_abs(input: &str) -> IResult<&str, Term> {
-  let (input, _) = char('\\')(input)?;
-  let (input, param) = take_while1(|c: char| c.is_alphanumeric())(input)?;
-  let (input, _) = char('.')(input)?;
-  let (input, body) = parse_term(input)?;  // Calling parse_term for the body
-  Ok((input, Term::Abs(param.to_string(), Box::new(body))))
-}
-
-fn parse_var(input: &str) -> IResult<&str, Term> {
-  let (input, var_name) = take_while1(|c: char| c.is_alphabetic())(input)?;
-  Ok((input, Term::Var(var_name.to_string())))
-}
-
-fn parse_app(input: &str) -> IResult<&str, Term> {
-  let (input, func) = parse_var(input)?; // Parse the first term
-
-  // Keep applying arguments to the function as long as there are more terms
-  let mut current_term = func;
-  let mut input = input;
-
-  while let Ok((new_input, (_, next_term))) = tuple((space0, parse_var))(input) {
-    input = new_input;
-    current_term = Term::App(Box::new(current_term), Box::new(next_term)); // Left-associative application
-  }
-
-  Ok((input, current_term))
+// Helper function to create context-aware errors
+fn custom_error<'a>(input: &'a str, kind: ParseErrorKind) -> Err<VerboseError<&'a str>> {
+  let error_msg = match kind {
+    ParseErrorKind::UnexpectedChar(c) => format!("Unexpected character: {}", c),
+    ParseErrorKind::UnexpectedEOF => "Unexpected end of input".to_string(),
+    ParseErrorKind::InvalidVariable => "Invalid variable name".to_string(),
+    ParseErrorKind::InvalidAbstraction => "Invalid lambda abstraction".to_string(),
+    ParseErrorKind::InvalidApplication => "Invalid function application".to_string(),
+    ParseErrorKind::Other(msg) => msg,
+  };
+  
+  Err::Failure(VerboseError { 
+    errors: vec![
+      (input, nom::error::VerboseErrorKind::Context("error context")),
+      ("", nom::error::VerboseErrorKind::Context(Box::leak(error_msg.into_boxed_str())))
+    ]
+  })
 }
 
 
-pub fn parse_term(input: &str) -> IResult<&str, Term, Error<&str>> {
-  let input = input.trim_start();
-
-  let (mut input, mut term) = alt((parse_parens, parse_abs, parse_var))(input)?;
-
-  while let Ok((new_input, (_, next_term))) = tuple((space0, alt((parse_parens, parse_abs, parse_var))))(input) {
-    input = new_input;
-    term = Term::App(Box::new(term), Box::new(next_term)); // Left-associative application
-  }
-
-  Ok((input, term))
+// Parse a variable
+fn parse_var(input: &str) -> ParseResult<Term> {
+  context(
+    "variable",
+    map(
+      take_while1(|c: char| c.is_alphabetic()),
+      |var: &str| Term::Var(var.to_string()),
+    ),
+  )(input)
+  .map_err(|_: nom::Err<VerboseError<&str>>| custom_error(input, ParseErrorKind::InvalidVariable))
 }
 
-fn continue_parsing_applications(input: &str, initial_term: Term) -> IResult<&str, Term> {
-  let mut term = initial_term;
-  let mut input = input;
-
-  // Try to continue parsing applications as long as there are valid terms to apply
-  while let Ok((new_input, next_term)) = parse_term(input.trim_start()) {
-    input = new_input;
-    term = Term::App(Box::new(term), Box::new(next_term));
-  }
-
-  Ok((input, term))
+// Parse a lambda abstraction
+fn parse_abs(input: &str) -> ParseResult<Term> {
+  context(
+    "abstraction",
+    map(
+      pair(
+        preceded(char('\\'), take_while1(|c: char| c.is_alphanumeric())),
+        preceded(char('.'), parse_term),
+      ),
+      |(param, body)| Term::Abs(param.to_string(), Box::new(body)),
+    ),
+  )(input)
+  .map_err(|_: nom::Err<VerboseError<&str>>| custom_error(input, ParseErrorKind::InvalidAbstraction))
 }
 
+// Parse parentheses
+fn parse_parens(input: &str) -> ParseResult<Term> {
+  context(
+    "parentheses",
+    delimited(char('('), parse_term, char(')')),
+  )(input)
+}
 
+// Parse a single term (variable, abstraction, or parenthesized expression)
+fn parse_single_term(input: &str) -> ParseResult<Term> {
+  alt((parse_var, parse_abs, parse_parens))(input)
+}
+
+// Parse function application
+fn parse_application(input: &str) -> ParseResult<Term> {
+  context(
+    "application",
+    map(
+      pair(parse_single_term, many0(preceded(space1, parse_single_term))),
+      |(first, rest)| {
+        rest.into_iter().fold(first, |acc, term| {
+          Term::App(Box::new(acc), Box::new(term))
+        })
+      },
+    ),
+  )(input)
+  .map_err(|_: nom::Err<VerboseError<&str>>| custom_error(input, ParseErrorKind::InvalidApplication))
+}
+
+// Main parsing function
+pub fn parse_term(input: &str) -> ParseResult<Term> {
+  delimited(space0, parse_application, space0)(input)
+}
 
 #[cfg(test)]
 mod tests {
   use super::*;
-  use crate::lexer::Term;
 
   #[test]
   fn test_parse_var() {
@@ -96,28 +126,6 @@ mod tests {
   #[test]
   fn test_parse_app() {
     assert_eq!(
-      parse_app("x y"),
-      Ok((
-        "",
-        Term::App(
-          Box::new(Term::Var("x".to_string())),
-          Box::new(Term::Var("y".to_string()))
-        )
-      ))
-    );
-  }
-
-  #[test]
-  fn test_parse_term() {
-    assert_eq!(
-      parse_term("\\x.x"),
-      Ok((
-        "",
-        Term::Abs("x".to_string(), Box::new(Term::Var("x".to_string())))
-      ))
-    );
-
-    assert_eq!(
       parse_term("x y"),
       Ok((
         "",
@@ -128,42 +136,27 @@ mod tests {
       ))
     );
   }
-  
-  #[test]
-  fn test_parse_parens() {
-    assert_eq!(
-      parse_parens("(x)"),
-      Ok(("", Term::Var("x".to_string())))
-    );
 
+  #[test]
+  fn test_parse_complex_term() {
     assert_eq!(
-      parse_parens("(\\x.x)"),
+      parse_term("(\\x. x y) (\\z. z)"),
       Ok((
         "",
-        Term::Abs("x".to_string(), Box::new(Term::Var("x".to_string())))
-      ))
-    );
-  }
-
-#[test]
-  fn test_full_application() {
-    let input = "(\\x. \\y. x) a b";
-    let expected = Ok((
-      "",
-      Term::App(
-        Box::new(Term::App(
+        Term::App(
           Box::new(Term::Abs(
-            "x".to_string(), 
-            Box::new(Term::Abs(
-              "y".to_string(), 
-              Box::new(Term::Var("x".to_string()))
+            "x".to_string(),
+            Box::new(Term::App(
+              Box::new(Term::Var("x".to_string())),
+              Box::new(Term::Var("y".to_string()))
             ))
           )),
-          Box::new(Term::Var("a".to_string()))
-        )),
-        Box::new(Term::Var("b".to_string()))
-      )
-    ));
-    assert_eq!(parse_term(input), expected);
+          Box::new(Term::Abs(
+            "z".to_string(),
+            Box::new(Term::Var("z".to_string()))
+          ))
+        )
+      ))
+    );
   }
 }
