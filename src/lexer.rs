@@ -1,49 +1,107 @@
-#[derive(Clone, PartialEq, Debug)]
-pub enum Term {
-  Var(String),               // x
-  Abs(String, Box<Term>),    // λx. M
-  App(Box<Term>, Box<Term>), // M N
+#[derive(Debug, PartialEq, Clone)]
+pub enum Token {
+    Lambda,
+    Dot,
+    LeftParen,
+    RightParen,
+    Identifier(String),
+}
+pub struct Lexer {
+    input: Vec<char>,
+    position: usize,
 }
 
-fn subst(var: &str, replacement: &Term, term: &Term) -> Term {
-  match term {
-    Term::Var(x) => {
-      if x == var {
-        replacement.clone()
-      } else {
-        Term::Var(x.clone())
-      }
+impl Lexer {
+    pub fn new(input: &str) -> Self {
+        Lexer {
+            input: input.chars().collect(),
+            position: 0,
+        }
     }
-    Term::Abs(param, body) => {
-      if param == var {
-        Term::Abs(param.clone(), body.clone())
-      } else {
-        Term::Abs(param.clone(), Box::new(subst(var, replacement, body)))
-      }
+
+    pub fn tokenize(&mut self) -> Result<Vec<Token>, String> {
+        let mut tokens = Vec::new();
+
+        while let Some(ch) = self.peek() {
+            match ch {
+                '\\' => {
+                    self.advance();
+                    tokens.push(Token::Lambda);
+                }
+                '.' => {
+                    self.advance();
+                    tokens.push(Token::Dot);
+                }
+                '(' => {
+                    self.advance();
+                    tokens.push(Token::LeftParen);
+                }
+                ')' => {
+                    self.advance();
+                    tokens.push(Token::RightParen);
+                }
+                c if c.is_whitespace() => {
+                    self.advance();
+                }
+                c if c.is_alphabetic() => {
+                    let identifier = self.read_identifier();
+                    tokens.push(Token::Identifier(identifier));
+                }
+                _ => return Err(format!("Unexpected character: {}", ch)),
+            }
+        }
+
+        Ok(tokens)
     }
-    Term::App(t1, t2) => Term::App(
-      Box::new(subst(var, replacement, t1)),
-      Box::new(subst(var, replacement, t2)),
-    ),
-  }
+
+    fn peek(&self) -> Option<char> {
+        self.input.get(self.position).cloned()
+    }
+
+    fn advance(&mut self) {
+        self.position += 1;
+    }
+
+    fn read_identifier(&mut self) -> String {
+        let start = self.position;
+        while let Some(ch) = self.peek() {
+            if ch.is_alphabetic() {
+                self.advance();
+            } else {
+                break;
+            }
+        }
+        self.input[start..self.position].iter().collect()
+    }
 }
 
 #[cfg(test)]
 mod tests {
-  use super::*;
+    use super::*;
 
-  #[test]
-  fn test_substitution() {
-    let var_x = Term::Var("x".to_string());
-    let var_y = Term::Var("y".to_string());
-    let abs = Term::Abs("x".to_string(), Box::new(var_x.clone()));
-    let app = Term::App(Box::new(var_y.clone()), Box::new(var_x.clone()));
+    #[test]
+    fn test_tokenize() {
+        let input = "(\\x. x y) (\\z. z)";
+        let mut lexer = Lexer::new(input);
+        let tokens = lexer.tokenize().unwrap();
 
-    assert_eq!(subst("x", &var_y, &var_x), var_y);
-    assert_eq!(subst("x", &var_y, &abs), abs);
-    assert_eq!(
-      subst("x", &var_y, &app),
-      Term::App(Box::new(var_y.clone()), Box::new(var_y))
-    );
-  }
+        assert_eq!(
+            tokens,
+            vec![
+                Token::LeftParen,
+                Token::Lambda,
+                Token::Identifier("x".to_string()),
+                Token::Dot,
+                Token::Identifier("x".to_string()),
+                Token::Identifier("y".to_string()),
+                Token::RightParen,
+                Token::LeftParen,
+                Token::Lambda,
+                Token::Identifier("z".to_string()),
+                Token::Dot,
+                Token::Identifier("z".to_string()),
+                Token::RightParen,
+            ]
+        );
+    }
 }

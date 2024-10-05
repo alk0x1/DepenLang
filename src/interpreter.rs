@@ -1,7 +1,7 @@
 use core::fmt;
 use std::{collections::HashMap, sync::Arc};
 
-use crate::lexer::Term;
+use crate::ast::Term;
 
 #[derive(Clone)]
 pub enum Value {
@@ -62,7 +62,6 @@ fn reify(val: Value) -> Term {
 #[cfg(test)]
 mod tests {
   use super::*;
-  use crate::lexer::Term;
 
   #[test]
   fn test_variable_evaluation() {
