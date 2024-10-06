@@ -52,10 +52,16 @@ pub fn eval(term: Term, env: &Env) -> Value {
   }
 }
 
-fn reify(val: Value) -> Term {
+pub fn reify(val: Value) -> Term {
   match val {
     Value::Var(x) => Term::Var(x),
-    Value::Closure(_) => Term::Abs("x".to_string(), Box::new(Term::Var("x".to_string()))),
+      
+    Value::Closure(f) => {
+      let dummy_var = Value::Var("x".to_string());
+      
+      let result = f(dummy_var.clone());
+      Term::Abs("x".to_string(), Box::new(reify(result)))
+    }
   }
 }
 
@@ -120,9 +126,67 @@ mod tests {
   }
 
   #[test]
-  fn test_reify() {
-    let closure_value = Value::Closure(Arc::new(|arg: Value| arg));
-    let term = reify(closure_value);
-    assert_eq!(term, Term::Abs("x".to_string(), Box::new(Term::Var("x".to_string()))));  // λx.x (identity)
+  fn test_reify_variable() {
+    // Testing reifying a variable
+    let var_value = Value::Var("x".to_string());
+    let reified = reify(var_value);
+    assert_eq!(reified, Term::Var("x".to_string()));
+  }
+
+  #[test]
+  fn test_reify_identity_function() {
+    // Testing reifying the identity function
+    let identity_closure = Value::Closure(Arc::new(|arg: Value| arg));
+    let reified = reify(identity_closure);
+    assert_eq!(
+      reified,
+      Term::Abs("x".to_string(), Box::new(Term::Var("x".to_string()))) // λx.x
+    );
+  }
+
+  #[test]
+  fn test_reify_constant_function() {
+    // Reifying a function that ignores its argument and always returns "a"
+    let constant_closure = Value::Closure(Arc::new(|_arg: Value| Value::Var("a".to_string())));
+    let reified = reify(constant_closure);
+    assert_eq!(
+      reified,
+      Term::Abs("x".to_string(), Box::new(Term::Var("a".to_string()))) // λx. a
+    );
+  }
+
+  #[test]
+  fn test_reify_nested_function() {
+    // Reifying a nested function λx. λy. x (ignores y and returns x)
+    let nested_closure = Value::Closure(Arc::new(|arg: Value| {
+      Value::Closure(Arc::new(move |_arg2: Value| arg.clone()))
+    }));
+    
+    let reified = reify(nested_closure);
+    assert_eq!(
+      reified,
+      Term::Abs(
+        "x".to_string(),
+        Box::new(Term::Abs("x".to_string(), Box::new(Term::Var("x".to_string())))) // λx. λx. x
+      )
+    );
+  }
+
+  #[test]
+  fn test_reify_environment_closure() {
+    // Reifying a closure that captures the environment (z) and returns it
+    let mut env = Env::new();
+    env.insert("z".to_string(), Value::Var("z_value".to_string()));
+    
+    let closure_with_env = Value::Closure(Arc::new(|_arg: Value| {
+      // Return the captured "z" from the environment
+      Value::Var("z_value".to_string())
+    }));
+    
+    let reified = reify(closure_with_env);
+    assert_eq!(
+      reified,
+      Term::Abs("x".to_string(), Box::new(Term::Var("z_value".to_string()))) // λx. z_value
+    );
   }
 }
